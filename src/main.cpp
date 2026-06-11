@@ -253,6 +253,7 @@ void setup() {
 
     // Fully configured — start radar
     flight_set_home(cfg.home_lat, cfg.home_lon, cfg.radius_nm);
+    flight_set_tick_fn(button_tick);   // keep the button live during fetches
 
     show_status("Searching...");
     poll_flight();

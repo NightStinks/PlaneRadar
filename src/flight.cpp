@@ -9,6 +9,7 @@ static float s_home_lat  = 0.0f;
 static float s_home_lon  = 0.0f;
 static int   s_radius_nm = 50;
 static bool  s_fetch_ok  = false;
+static void (*s_tick_fn)() = nullptr;   // pumped during blocking waits (button)
 
 void flight_set_home(float lat, float lon, int radius_nm) {
     s_home_lat  = lat;
@@ -16,7 +17,11 @@ void flight_set_home(float lat, float lon, int radius_nm) {
     s_radius_nm = radius_nm;
 }
 
+void flight_set_tick_fn(void (*fn)()) { s_tick_fn = fn; }
+
 bool flight_fetch_ok() { return s_fetch_ok; }
+
+static inline void pump() { if (s_tick_fn) s_tick_fn(); }
 
 float haversine_km(float lat1, float lon1, float lat2, float lon2) {
     float dlat = (lat2 - lat1) * DEG_TO_RAD;
@@ -37,12 +42,12 @@ float bearing_deg(float lat1, float lon1, float lat2, float lon2) {
 }
 
 // Retry the GET while the connection is being refused / not yet established.
-// On the ESP32-C3 the first TLS handshake to the API sometimes fails
-// transiently; the reference firmware retries instead of giving up. Returns
-// the HTTP status code (>0) or a negative HTTPClient error.
+// The first TLS handshake on the C3 sometimes fails transiently. Kept short
+// (4 s) so a genuinely down network doesn't freeze the UI. Returns the HTTP
+// status code (>0) or a negative HTTPClient error.
 static int get_with_retry(HTTPClient &http) {
     http.setConnectTimeout(2000);
-    const uint32_t deadline = millis() + 10000;
+    const uint32_t deadline = millis() + 4000;
     int code = 0;
     while (millis() < deadline) {
         code = http.GET();
@@ -52,42 +57,61 @@ static int get_with_retry(HTTPClient &http) {
             code != HTTPC_ERROR_NOT_CONNECTED) {
             return code;                                 // hard error — don't spin
         }
+        pump();
         delay(50);
     }
     return code;
 }
 
-// Read the entire response body into `payload`, waiting properly for every
-// byte. Streaming deserializeJson straight off a TLS socket on the C3 can hit
-// a momentary available()==0 mid-transfer and abort with IncompleteInput —
-// which looks like "no aircraft". Reading the whole body first (the approach
-// the proven reference firmware uses) avoids that.
-static bool read_body(HTTPClient &http, String &payload) {
-    WiFiClient *stream = http.getStreamPtr();
-    if (!stream) return false;
+// A Stream wrapper whose read() BLOCKS until a byte arrives (or the socket
+// truly closes / times out). ESP32's WiFiClient::read() is non-blocking and
+// returns -1 the instant no byte is buffered — feeding that straight into
+// deserializeJson makes the parser see a false EOF mid-transfer on the slower
+// C3 and abort with IncompleteInput ("no signal"). Wrapping the client this
+// way lets us stream-parse with an ArduinoJson filter (tiny RAM, no 75 KB
+// body buffer to allocate) AND read reliably. The button is pumped while we
+// wait so the view stays responsive during a fetch.
+class BlockingClientStream : public Stream {
+ public:
+    BlockingClientStream(WiFiClient *c, uint32_t timeout_ms)
+        : c_(c), timeout_ms_(timeout_ms) {}
 
-    const int content_length = http.getSize();
-    if (content_length > 0) {
-        payload.reserve(content_length + 1);   // exact size — no realloc spikes
-    } else {
-        payload.reserve(96 * 1024);             // chunked: pre-size to avoid doubling
-    }
+    int available() override { return c_->available(); }
+    int peek() override      { return c_->peek(); }
+    size_t write(uint8_t) override { return 0; }
 
-    uint8_t buf[512];
-    const uint32_t deadline = millis() + 12000;
-    while (millis() < deadline) {
-        int avail = stream->available();
-        if (avail > 0) {
-            int to_read = avail > (int)sizeof(buf) ? (int)sizeof(buf) : avail;
-            int n = stream->readBytes(buf, to_read);
-            if (n > 0) payload.concat((const char *)buf, n);
+    int read() override {
+        // Throttled button poll even while data is flowing fast, so a quick
+        // tap during the bulk transfer isn't missed.
+        uint32_t now = millis();
+        if (now - last_pump_ >= 40) { pump(); last_pump_ = now; }
+
+        const uint32_t deadline = now + timeout_ms_;
+        for (;;) {
+            int b = c_->read();
+            if (b >= 0) return b;
+            if (!c_->connected() && c_->available() <= 0) return -1;  // real EOF
+            if (millis() > deadline) return -1;                       // stalled
+            pump();
+            delay(1);
         }
-        if (content_length > 0 && (int)payload.length() >= content_length) break;
-        if (!http.connected() && stream->available() <= 0) break;
-        delay(1);
     }
-    return payload.length() > 0;
-}
+
+    size_t readBytes(char *buf, size_t len) {
+        size_t got = 0;
+        while (got < len) {
+            int b = read();
+            if (b < 0) break;
+            buf[got++] = (char)b;
+        }
+        return got;
+    }
+
+ private:
+    WiFiClient *c_;
+    uint32_t    timeout_ms_;
+    uint32_t    last_pump_ = 0;
+};
 
 bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_count) {
     out_count = 0;
@@ -122,21 +146,9 @@ bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_
         return false;
     }
 
-    // Pull the whole body into RAM, then close the socket before parsing so
-    // the TLS buffers are freed and only the payload + parsed doc coexist.
-    String payload;
-    bool got = read_body(http, payload);
-    http.end();
-    if (!got) {
-        Serial.println("[flight] empty response body");
-        return false;
-    }
-    Serial.printf("[flight] body %u bytes, heap %u\n",
-                  (unsigned)payload.length(), ESP.getFreeHeap());
-
-    // Only keep the fields we use. The [0] template is applied to every
-    // element of the "ac" array — this keeps the parsed doc tiny so it fits
-    // alongside the async web server on the C3's no-PSRAM heap.
+    // Only keep the fields we use. The [0] template is applied to every element
+    // of the "ac" array — the parsed doc stays a few KB regardless of how many
+    // aircraft the API returns, so no 75 KB body buffer is needed.
     JsonDocument filter;
     JsonObject fac = filter["ac"].add<JsonObject>();
     fac["lat"]         = true;
@@ -149,9 +161,19 @@ bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_
     fac["r"]           = true;
     fac["t"]           = true;
 
+    // Stream-parse straight off the socket through the blocking wrapper.
+    WiFiClient *raw = http.getStreamPtr();
+    if (!raw) {
+        Serial.println("[flight] no stream");
+        http.end();
+        return false;
+    }
+    BlockingClientStream bs(raw, 5000);
+
     JsonDocument doc;
     DeserializationError err = deserializeJson(
-        doc, payload, DeserializationOption::Filter(filter));
+        doc, bs, DeserializationOption::Filter(filter));
+    http.end();
 
     if (err) {
         Serial.printf("[flight] JSON error: %s (heap %u)\n", err.c_str(), ESP.getFreeHeap());

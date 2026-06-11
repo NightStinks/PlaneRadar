@@ -10,7 +10,7 @@ public:
         {
             auto cfg = _bus.config();
             cfg.spi_host   = SPI2_HOST;
-            cfg.freq_write = 80000000;
+            cfg.freq_write = 40000000;   // 40 MHz — matches the reference; 80 was glitchy
             cfg.pin_sclk  = PIN_SCK;
             cfg.pin_mosi  = PIN_MOSI;
             cfg.pin_miso  = -1;
@@ -25,6 +25,10 @@ public:
             cfg.pin_busy  = -1;
             // If the image is upside-down, change offset_rotation to 2
             cfg.offset_rotation = 0;
+            // GC9A01 modules need invert + BGR for correct black background and
+            // colours — without invert, TFT_BLACK renders as white.
+            cfg.invert    = true;
+            cfg.rgb_order = true;
             _panel.config(cfg);
         }
         // PIN_BL = -1 means backlight is wired directly to VCC

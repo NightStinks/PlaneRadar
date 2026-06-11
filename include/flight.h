@@ -24,6 +24,10 @@ struct RadarAircraft {
 
 void  flight_set_home(float lat, float lon, int radius_nm);
 
+// Optional callback pumped during blocking network waits (e.g. button polling)
+// so the UI stays responsive while a fetch is in flight.
+void  flight_set_tick_fn(void (*fn)());
+
 // Poll adsb.fi. Fills out_nearest (invalid if none) and out_all[0..out_count-1].
 // out_all must point to a MAX_RADAR_AIRCRAFT array.
 bool  flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_count);
