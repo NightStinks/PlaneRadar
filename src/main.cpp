@@ -7,6 +7,7 @@
 #include "flight.h"
 #include "enrichment.h"
 #include "views.h"
+#include "ota.h"
 
 // ── Hardware ──────────────────────────────────────────────────────────────────
 #define BOOT_PIN 9   // active LOW, internal pull-up
@@ -211,8 +212,35 @@ void setup() {
         for (;;) delay(1000);  // stuck until user resets and reconfigures
     }
 
-    // ── Ready ──────────────────────────────────────────────────────────────────
+    // ── OTA check ─────────────────────────────────────────────────────────────
     Serial.printf("[wifi] %s\n", WiFi.localIP().toString().c_str());
+    show_status("Checking for", "update...");
+    {
+        lgfx::LGFX_Sprite *spr = display_get_sprite();
+        ota_check([spr](int cur, int total) {
+            spr->fillScreen(TFT_BLACK);
+            spr->setTextDatum(lgfx::top_center);
+            spr->setFont(&lgfx::fonts::Font2);
+            spr->setTextColor(TFT_WHITE);
+            spr->drawString("Updating...", 120, 72);
+            spr->setFont(&lgfx::fonts::Font0);
+            spr->setTextColor(0x4208);
+            spr->drawString("do not power off", 120, 102);
+            if (total > 0) {
+                int bar_w = (int)(198.0f * cur / total);
+                spr->drawRect(20, 122, 200, 14, 0x31A6);
+                spr->fillRect(21, 123, bar_w, 12, TFT_CYAN);
+                char pct[8];
+                snprintf(pct, sizeof(pct), "%d%%", 100 * cur / total);
+                spr->setFont(&lgfx::fonts::Font2);
+                spr->setTextColor(TFT_WHITE);
+                spr->drawString(pct, 120, 144);
+            }
+            display_push();
+        });
+    }
+
+    // ── Ready ──────────────────────────────────────────────────────────────────
     flight_set_home(cfg.home_lat, cfg.home_lon, cfg.radius_nm);
 
     show_status("Searching...");

@@ -1,0 +1,107 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore:
+      - 'docs/version.json'
+      - 'docs/manifest.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Stamp version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          sed -i "s/0\.0\.0-dev/${VERSION}/" platformio.ini
+
+      - name: Build firmware
+        run: pio run -e planeradar-c3
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ github.sha }}
+          path: |
+            .pio/build/planeradar-c3/bootloader.bin
+            .pio/build/planeradar-c3/partitions.bin
+            .pio/build/planeradar-c3/firmware.bin
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "PlaneRadar ${{ github.ref_name }}" \
+            --generate-notes \
+            .pio/build/planeradar-c3/bootloader.bin \
+            .pio/build/planeradar-c3/partitions.bin \
+            .pio/build/planeradar-c3/firmware.bin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update docs for release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${{ github.ref_name }}"
+          REPO="${{ github.repository }}"
+
+          cat > docs/version.json << EOF
+          {"version":"${VERSION}","url":"https://github.com/${REPO}/releases/download/${VERSION}/firmware.bin"}
+          EOF
+
+          cat > docs/manifest.json << EOF
+          {
+            "name": "PlaneRadar",
+            "version": "${VERSION}",
+            "new_install_prompt_erase": true,
+            "builds": [
+              {
+                "chipFamily": "ESP32-C3",
+                "parts": [
+                  { "path": "https://github.com/${REPO}/releases/download/${VERSION}/bootloader.bin", "offset": 0 },
+                  { "path": "https://github.com/${REPO}/releases/download/${VERSION}/partitions.bin", "offset": 32768 },
+                  { "path": "https://github.com/${REPO}/releases/download/${VERSION}/firmware.bin",    "offset": 65536 }
+                ]
+              }
+            ]
+          }
+          EOF
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          git add docs/version.json docs/manifest.json
+          git commit -m "chore: update docs for ${VERSION} [skip ci]"
+          git push origin main
