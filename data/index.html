@@ -253,6 +253,7 @@ async function saveSection(section) {
       home_lon:       parseFloat(getVal('home_lon'))     || 0,
       radius_nm:      parseInt(getVal('radius_nm'))      || 30,
       screen_bearing: parseInt(getVal('screen_bearing')) || 0,
+      reboot:         true,
     };
   }
 
@@ -266,8 +267,12 @@ async function saveSection(section) {
     });
     const d = await r.json();
     if (d.ok) {
-      show(s, 'ok', '✓ Saved');
-      if (badge) { badge.style.display = 'block'; setTimeout(() => badge.style.display = 'none', 3000); }
+      if (payload.reboot) {
+        show(s, 'ok', '✓ Saved — rebooting, give it a few seconds…');
+      } else {
+        show(s, 'ok', '✓ Saved');
+        if (badge) { badge.style.display = 'block'; setTimeout(() => badge.style.display = 'none', 3000); }
+      }
     } else {
       show(s, 'err', 'Save failed');
     }

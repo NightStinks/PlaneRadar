@@ -1,6 +1,7 @@
 #include "flight.h"
 
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <math.h>
 
@@ -43,8 +44,11 @@ bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_
         "https://api.adsb.lol/v2/lat/%.4f/lon/%.4f/dist/%d",
         s_home_lat, s_home_lon, s_radius_nm);
 
+    WiFiClientSecure tls;
+    tls.setInsecure();
+
     HTTPClient http;
-    http.begin(url);
+    http.begin(tls, url);
     http.setTimeout(10000);
     http.addHeader("User-Agent", "PlaneRadar/1.0");
 
