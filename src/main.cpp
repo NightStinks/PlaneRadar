@@ -39,10 +39,12 @@ static char            s_last_cs[16] = {};
 static void redraw() {
     lgfx::LGFX_Sprite *spr = display_get_sprite();
     if (view_radar) {
+        const char *empty_msg = flight_fetch_ok() ? "No aircraft" : "No signal";
         radar_view_draw(spr, s_all, s_count,
                         s_nearest.valid ? s_nearest.bearing_deg : -1.0f,
                         s_nearest.valid ? s_nearest.distance_km : -1.0f,
-                        RANGE_PRESETS[range_idx], cfg.screen_bearing);
+                        RANGE_PRESETS[range_idx], cfg.screen_bearing,
+                        empty_msg);
     } else {
         detail_view_draw(spr, s_nearest, s_route, cfg.screen_bearing);
     }

@@ -4,27 +4,41 @@
 #define CX 120
 #define CY 120
 
-static void draw_bearing_arrow(lgfx::LGFX_Sprite *spr, float bearing_deg, int screen_bearing) {
-    float adj = (bearing_deg - screen_bearing) * DEG_TO_RAD;
-    const int r = 28;
-    const int ox = CX, oy = 118;
+// Draw a top-down airplane silhouette centred at (cx,cy), nose pointing toward
+// `heading_rad` (0 = screen up). Built from filled triangles in a local frame
+// where +ly is forward (nose) and +lx is starboard (right wing), then rotated.
+static void draw_plane(lgfx::LGFX_Sprite *spr, int cx, int cy,
+                       float scale, float heading_rad, uint32_t col) {
+    const float s = sinf(heading_rad);
+    const float c = cosf(heading_rad);
 
-    spr->drawCircle(ox, oy, r, 0x4208);  // dim ring
+    // local (lx, ly) -> screen. forward=(s,-c), starboard=(c,s)
+    auto px = [&](float lx, float ly) { return cx + (int)lroundf((lx * c + ly * s) * scale); };
+    auto py = [&](float lx, float ly) { return cy + (int)lroundf((lx * s - ly * c) * scale); };
 
-    // North tick (direction the display faces = top of screen)
-    spr->fillCircle(ox, oy - r, 2, 0xFFE0);  // yellow dot at "up"
+    // Fuselage (nose → tail), as two triangles forming a slim diamond
+    spr->fillTriangle(px(0, 10),  py(0, 10),
+                      px(-1.6f, -9), py(-1.6f, -9),
+                      px(1.6f, -9),  py(1.6f, -9), col);
+    spr->fillTriangle(px(-1.6f, 3), py(-1.6f, 3),
+                      px(1.6f, 3),   py(1.6f, 3),
+                      px(0, 10),     py(0, 10), col);
 
-    // Arrow line from center
-    int ax = ox + (int)(r * sinf(adj));
-    int ay = oy - (int)(r * cosf(adj));
-    spr->drawLine(ox, oy, ax, ay, TFT_WHITE);
+    // Main wings (swept back)
+    spr->fillTriangle(px(0, 2.5f),  py(0, 2.5f),
+                      px(-12, -3.5f), py(-12, -3.5f),
+                      px(0, -3),     py(0, -3), col);
+    spr->fillTriangle(px(0, 2.5f),  py(0, 2.5f),
+                      px(12, -3.5f),  py(12, -3.5f),
+                      px(0, -3),     py(0, -3), col);
 
-    // Arrowhead
-    int h1x = ax + (int)(5 * sinf(adj + 2.45f));
-    int h1y = ay - (int)(5 * cosf(adj + 2.45f));
-    int h2x = ax + (int)(5 * sinf(adj - 2.45f));
-    int h2y = ay - (int)(5 * cosf(adj - 2.45f));
-    spr->fillTriangle(ax, ay, h1x, h1y, h2x, h2y, TFT_WHITE);
+    // Tailplane (small swept stabilisers)
+    spr->fillTriangle(px(0, -5),    py(0, -5),
+                      px(-5.5f, -9), py(-5.5f, -9),
+                      px(0, -9),     py(0, -9), col);
+    spr->fillTriangle(px(0, -5),    py(0, -5),
+                      px(5.5f, -9),  py(5.5f, -9),
+                      px(0, -9),     py(0, -9), col);
 }
 
 void detail_view_draw(lgfx::LGFX_Sprite *spr,
@@ -45,18 +59,27 @@ void detail_view_draw(lgfx::LGFX_Sprite *spr,
     spr->setFont(&lgfx::fonts::Font4);
     spr->setTextColor(TFT_WHITE);
     spr->setTextDatum(lgfx::top_center);
-    spr->drawString(nearest.callsign, CX, 32);
+    spr->drawString(nearest.callsign, CX, 28);
 
     // ── Airline ──────────────────────────────────────────────────────────
     if (route.valid && route.airline[0]) {
-        spr->setFont(&lgfx::fonts::Font0);
+        spr->setFont(&lgfx::fonts::Font2);
         spr->setTextColor(0x7BEF);
         spr->setTextDatum(lgfx::top_center);
-        spr->drawString(route.airline, CX, 60);
+        spr->drawString(route.airline, CX, 56);
     }
 
-    // ── Bearing arrow ─────────────────────────────────────────────────────
-    draw_bearing_arrow(spr, nearest.bearing_deg, screen_bearing);
+    // ── Plane arrow: points toward the aircraft relative to where you face ──
+    // "up" on the display = the direction the screen faces (screen_bearing),
+    // so the plane silhouette points the way you'd turn to spot it.
+    const int pcx = CX, pcy = 120;
+    const int ring_r = 40;
+    float adj = (nearest.bearing_deg - screen_bearing) * DEG_TO_RAD;
+
+    spr->drawCircle(pcx, pcy, ring_r, 0x2104);          // faint guide ring
+    spr->fillCircle(pcx, pcy - ring_r, 2, 0x4208);      // tick at "up"
+
+    draw_plane(spr, pcx, pcy, 1.7f, adj, TFT_CYAN);
 
     // ── Route ─────────────────────────────────────────────────────────────
     if (route.valid && route.origin_iata[0] && route.dest_iata[0]) {
@@ -66,21 +89,21 @@ void detail_view_draw(lgfx::LGFX_Sprite *spr,
         spr->setFont(&lgfx::fonts::Font2);
         spr->setTextColor(TFT_CYAN);
         spr->setTextDatum(lgfx::top_center);
-        spr->drawString(route_str, CX, 154);
+        spr->drawString(route_str, CX, 168);
     }
 
     // ── Distance + altitude ───────────────────────────────────────────────
     char dist_str[24];
     if (nearest.altitude_ft > 100) {
-        snprintf(dist_str, sizeof(dist_str), "%.1fkm  FL%d",
+        snprintf(dist_str, sizeof(dist_str), "%.0fkm  FL%d",
                  nearest.distance_km, (int)(nearest.altitude_ft / 100));
     } else {
-        snprintf(dist_str, sizeof(dist_str), "%.1fkm", nearest.distance_km);
+        snprintf(dist_str, sizeof(dist_str), "%.0fkm", nearest.distance_km);
     }
-    spr->setFont(&lgfx::fonts::Font0);
-    spr->setTextColor(0x7BEF);
+    spr->setFont(&lgfx::fonts::Font2);
+    spr->setTextColor(0xAEBF);
     spr->setTextDatum(lgfx::top_center);
-    spr->drawString(dist_str, CX, 178);
+    spr->drawString(dist_str, CX, 190);
 
     // ── Speed ─────────────────────────────────────────────────────────────
     if (nearest.speed_kts > 10) {
@@ -89,6 +112,6 @@ void detail_view_draw(lgfx::LGFX_Sprite *spr,
         spr->setFont(&lgfx::fonts::Font0);
         spr->setTextColor(0x4208);
         spr->setTextDatum(lgfx::top_center);
-        spr->drawString(spd_str, CX, 195);
+        spr->drawString(spd_str, CX, 212);
     }
 }

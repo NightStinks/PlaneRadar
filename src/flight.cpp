@@ -8,12 +8,15 @@
 static float s_home_lat  = 0.0f;
 static float s_home_lon  = 0.0f;
 static int   s_radius_nm = 50;
+static bool  s_fetch_ok  = false;
 
 void flight_set_home(float lat, float lon, int radius_nm) {
     s_home_lat  = lat;
     s_home_lon  = lon;
     s_radius_nm = radius_nm;
 }
+
+bool flight_fetch_ok() { return s_fetch_ok; }
 
 float haversine_km(float lat1, float lon1, float lat2, float lon2) {
     float dlat = (lat2 - lat1) * DEG_TO_RAD;
@@ -89,6 +92,7 @@ static bool read_body(HTTPClient &http, String &payload) {
 bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_count) {
     out_count = 0;
     out_nearest.valid = false;
+    s_fetch_ok = false;
 
     if (s_home_lat == 0.0f && s_home_lon == 0.0f) return false;
 
@@ -153,6 +157,9 @@ bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_
         Serial.printf("[flight] JSON error: %s (heap %u)\n", err.c_str(), ESP.getFreeHeap());
         return false;
     }
+
+    // HTTP + parse succeeded — the network path is healthy regardless of count.
+    s_fetch_ok = true;
 
     JsonArrayConst ac = doc["ac"].as<JsonArrayConst>();
     if (ac.isNull() || ac.size() == 0) {

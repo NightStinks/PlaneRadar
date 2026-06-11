@@ -24,9 +24,14 @@ struct RadarAircraft {
 
 void  flight_set_home(float lat, float lon, int radius_nm);
 
-// Poll adsb.lol. Fills out_nearest (invalid if none) and out_all[0..out_count-1].
+// Poll adsb.fi. Fills out_nearest (invalid if none) and out_all[0..out_count-1].
 // out_all must point to a MAX_RADAR_AIRCRAFT array.
 bool  flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_count);
+
+// True if the most recent flight_poll completed an HTTP fetch + JSON parse
+// successfully (even if zero aircraft were in range). False means a network /
+// TLS / parse failure — lets the UI show "No signal" vs "No aircraft".
+bool  flight_fetch_ok();
 
 float haversine_km(float lat1, float lon1, float lat2, float lon2);
 float bearing_deg(float lat1, float lon1, float lat2, float lon2);

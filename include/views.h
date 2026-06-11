@@ -8,7 +8,8 @@
 void radar_view_draw(lgfx::LGFX_Sprite *spr,
                      const RadarAircraft *ac, int count,
                      float nearest_bearing, float nearest_dist_km,
-                     int display_range_nm, int screen_bearing);
+                     int display_range_nm, int screen_bearing,
+                     const char *empty_msg = "No aircraft");
 
 void detail_view_draw(lgfx::LGFX_Sprite *spr,
                       const NearestAircraft &nearest,
