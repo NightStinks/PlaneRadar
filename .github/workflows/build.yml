@@ -1,18 +1,17 @@
-name: Build & Release
+name: Build & Deploy
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
-    paths-ignore:
-      - 'docs/version.json'
-      - 'docs/manifest.json'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: pages
   cancel-in-progress: true
 
 jobs:
@@ -21,87 +20,80 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/pip
-            ~/.platformio/.cache
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-
 
       - name: Install PlatformIO
         run: pip install platformio
 
-      - name: Stamp version from tag
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Stamp git SHA as version
         run: |
-          VERSION="${{ github.ref_name }}"
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          sed -i "s/0\.0\.0-dev/${VERSION}/" platformio.ini
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          sed -i "s/0\.0\.0-dev/${SHORT_SHA}/" platformio.ini
 
       - name: Build firmware
         run: pio run -e planeradar-c3
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmware-${{ github.sha }}
-          path: |
-            .pio/build/planeradar-c3/bootloader.bin
-            .pio/build/planeradar-c3/partitions.bin
-            .pio/build/planeradar-c3/firmware.bin
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Collect artifacts
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "PlaneRadar ${{ github.ref_name }}" \
-            --generate-notes \
-            .pio/build/planeradar-c3/bootloader.bin \
-            .pio/build/planeradar-c3/partitions.bin \
-            .pio/build/planeradar-c3/firmware.bin
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD=.pio/build/planeradar-c3
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          PAGES_BASE="https://${OWNER}.github.io/${REPO}"
 
-      - name: Update docs for release
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          VERSION="${{ github.ref_name }}"
-          REPO="${{ github.repository }}"
+          mkdir -p gh-pages
+          cp $BUILD/firmware.bin   gh-pages/
+          cp $BUILD/bootloader.bin gh-pages/
+          cp $BUILD/partitions.bin gh-pages/
+          cp docs/index.html       gh-pages/
 
-          cat > docs/version.json << EOF
-          {"version":"${VERSION}","url":"https://github.com/${REPO}/releases/download/${VERSION}/firmware.bin"}
-          EOF
-
-          cat > docs/manifest.json << EOF
+          # manifest.json — relative paths so ESP Web Tools fetches from same origin (no CORS)
+          cat > gh-pages/manifest.json << EOF
           {
             "name": "PlaneRadar",
-            "version": "${VERSION}",
+            "version": "${SHORT_SHA}",
             "new_install_prompt_erase": true,
             "builds": [
               {
                 "chipFamily": "ESP32-C3",
                 "parts": [
-                  { "path": "https://github.com/${REPO}/releases/download/${VERSION}/bootloader.bin", "offset": 0 },
-                  { "path": "https://github.com/${REPO}/releases/download/${VERSION}/partitions.bin", "offset": 32768 },
-                  { "path": "https://github.com/${REPO}/releases/download/${VERSION}/firmware.bin",    "offset": 65536 }
+                  { "path": "bootloader.bin",  "offset": 0      },
+                  { "path": "partitions.bin",  "offset": 32768  },
+                  { "path": "firmware.bin",    "offset": 65536  }
                 ]
               }
             ]
           }
           EOF
 
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git checkout main
-          git add docs/version.json docs/manifest.json
-          git commit -m "chore: update docs for ${VERSION} [skip ci]"
-          git push origin main
+          # version.json — consumed by the device OTA checker on each boot
+          echo "{\"version\":\"${SHORT_SHA}\",\"url\":\"${PAGES_BASE}/firmware.bin\"}" \
+            > gh-pages/version.json
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: gh-pages
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deploy
