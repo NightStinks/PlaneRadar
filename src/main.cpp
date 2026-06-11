@@ -257,16 +257,31 @@ void setup() {
     redraw();
 }
 
-static uint32_t last_poll = 0;
+static uint32_t last_poll   = 0;
+static uint32_t last_ota_ms = 0;  // 0 = not yet initialised; set on first loop tick
 
 void loop() {
     button_tick();
 
     uint32_t now = millis();
+
     if (now - last_poll >= POLL_INTERVAL_MS || last_poll == 0) {
         last_poll = now;
         poll_flight();
         redraw();
+    }
+
+    // Periodic OTA check every 6 hours.
+    // Initialise last_ota_ms on the first loop tick so we don't re-check
+    // immediately after the boot-time check in setup().
+    if (last_ota_ms == 0) {
+        last_ota_ms = now;
+    } else if (now - last_ota_ms >= 6UL * 3600 * 1000) {
+        last_ota_ms = now;
+        xTaskCreate([](void *) {
+            ota_check(nullptr);  // reboots automatically if update found
+            vTaskDelete(nullptr);
+        }, "ota_bg", 16384, nullptr, 1, nullptr);
     }
 
     delay(20);

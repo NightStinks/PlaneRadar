@@ -1,4 +1,5 @@
 #include "web_server.h"
+#include "ota.h"
 
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
@@ -86,6 +87,16 @@ void web_server_init(AppConfig &cfg) {
 
     server.on("/status", HTTP_GET, [](AsyncWebServerRequest *req) {
         handle_get_status(req);
+    });
+
+    // POST /ota — trigger OTA check in a background task
+    server.on("/ota", HTTP_POST, [](AsyncWebServerRequest *req) {
+        req->send(200, "application/json", "{\"ok\":true}");
+        xTaskCreate([](void *) {
+            delay(300);  // let the HTTP response flush before we block the TCP stack
+            ota_check(nullptr);
+            vTaskDelete(nullptr);
+        }, "ota_web", 16384, nullptr, 1, nullptr);
     });
 
     server.onNotFound([](AsyncWebServerRequest *req) {

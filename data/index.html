@@ -38,7 +38,7 @@
   }
   header .icon { font-size: 24px; }
   header h1 { font-size: 18px; font-weight: 700; flex: 1; }
-  header .ip { font-size: 12px; color: var(--muted); }
+  header .meta { font-size: 12px; color: var(--muted); display: flex; gap: 12px; }
 
   main { max-width: 640px; margin: 0 auto; padding: 28px 16px; display: flex; flex-direction: column; gap: 20px; }
 
@@ -149,7 +149,10 @@
 <header>
   <span class="icon">✈</span>
   <h1>PlaneRadar</h1>
-  <span class="ip" id="ip-display"></span>
+  <div class="meta">
+    <span id="ip-display"></span>
+    <span id="ver-display"></span>
+  </div>
 </header>
 
 <main>
@@ -192,6 +195,16 @@
     </div>
   </section>
 
+  <!-- Firmware -->
+  <section>
+    <div class="section-title">Firmware</div>
+    <div class="section-body">
+      <p style="font-size:13px;color:var(--muted)">Running version: <code id="fw-version" style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-family:monospace">—</code></p>
+      <button class="btn ghost" onclick="checkUpdate()">Check for update</button>
+      <div id="status-ota" class="status"></div>
+    </div>
+  </section>
+
   <!-- WiFi -->
   <section>
     <div class="section-title">Wi-Fi</div>
@@ -222,7 +235,22 @@ async function loadStatus() {
     const r = await fetch('/status');
     const d = await r.json();
     document.getElementById('ip-display').textContent = d.ip;
+    if (d.version) {
+      document.getElementById('ver-display').textContent = 'v' + d.version;
+      document.getElementById('fw-version').textContent = d.version;
+    }
   } catch(_) {}
+}
+
+async function checkUpdate() {
+  const s = document.getElementById('status-ota');
+  show(s, 'info', '<span class="spinner"></span> Checking — device will reboot automatically if an update is found…');
+  try {
+    await fetch('/ota', { method: 'POST' });
+    show(s, 'ok', 'Check triggered. If an update was found the device is rebooting — wait a few seconds then refresh this page.');
+  } catch(_) {
+    show(s, 'ok', 'Check triggered.');
+  }
 }
 
 async function loadConfig() {
