@@ -46,6 +46,9 @@ jobs:
       - name: Build firmware
         run: pio run -e planeradar-c3
 
+      - name: Build filesystem image
+        run: pio run -e planeradar-c3 --target buildfs
+
       - name: Collect artifacts
         run: |
           BUILD=.pio/build/planeradar-c3
@@ -55,12 +58,14 @@ jobs:
           PAGES_BASE="https://${OWNER}.github.io/${REPO}"
 
           mkdir -p gh-pages
-          cp $BUILD/firmware.bin   gh-pages/
-          cp $BUILD/bootloader.bin gh-pages/
-          cp $BUILD/partitions.bin gh-pages/
-          cp docs/index.html       gh-pages/
+          cp $BUILD/firmware.bin    gh-pages/
+          cp $BUILD/bootloader.bin  gh-pages/
+          cp $BUILD/partitions.bin  gh-pages/
+          cp $BUILD/littlefs.bin    gh-pages/
+          cp docs/index.html        gh-pages/
 
           # manifest.json — relative paths so ESP Web Tools fetches from same origin (no CORS)
+          # LittleFS offset 0x290000 = 2686976 from ESP32-C3 default 4MB partition table
           cat > gh-pages/manifest.json << EOF
           {
             "name": "PlaneRadar",
@@ -70,9 +75,10 @@ jobs:
               {
                 "chipFamily": "ESP32-C3",
                 "parts": [
-                  { "path": "bootloader.bin",  "offset": 0      },
-                  { "path": "partitions.bin",  "offset": 32768  },
-                  { "path": "firmware.bin",    "offset": 65536  }
+                  { "path": "bootloader.bin",  "offset": 0       },
+                  { "path": "partitions.bin",  "offset": 32768   },
+                  { "path": "firmware.bin",    "offset": 65536   },
+                  { "path": "littlefs.bin",    "offset": 2686976 }
                 ]
               }
             ]

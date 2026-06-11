@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PlaneRadar — Configure</title>
+<style>
+  :root {
+    --bg:     #0d1117;
+    --surface:#161b22;
+    --card:   #21262d;
+    --border: #30363d;
+    --text:   #e6edf3;
+    --muted:  #8b949e;
+    --accent: #58a6ff;
+    --green:  #3fb950;
+    --red:    #f85149;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 15px;
+    padding-bottom: 40px;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header .icon { font-size: 24px; }
+  header h1 { font-size: 18px; font-weight: 700; flex: 1; }
+  header .ip { font-size: 12px; color: var(--muted); }
+
+  main { max-width: 640px; margin: 0 auto; padding: 28px 16px; display: flex; flex-direction: column; gap: 20px; }
+
+  section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .section-title {
+    padding: 12px 18px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .section-title .saved-badge {
+    background: rgba(63,185,80,0.15);
+    color: var(--green);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    display: none;
+  }
+  .section-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+
+  label { display: flex; flex-direction: column; gap: 5px; }
+  label .lbl { font-size: 12px; font-weight: 600; color: var(--muted); }
+  label small { font-size: 11px; color: var(--muted); opacity: 0.7; margin-top: 2px; }
+  input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 15px;
+    padding: 9px 12px;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus { border-color: var(--accent); }
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .callout {
+    background: rgba(88,166,255,0.08);
+    border: 1px solid rgba(88,166,255,0.25);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .callout strong { color: var(--text); }
+  .callout a { color: var(--accent); }
+
+  .btn {
+    background: var(--accent);
+    border: none;
+    border-radius: 7px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 10px 18px;
+    transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn.ghost {
+    background: var(--card);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    font-weight: 500;
+  }
+
+  .status {
+    border-radius: 7px;
+    font-size: 13px;
+    padding: 10px 14px;
+    display: none;
+  }
+  .status.ok   { background: rgba(63,185,80,0.12);  color: var(--green);  display: block; }
+  .status.err  { background: rgba(248,81,73,0.12);  color: var(--red);    display: block; }
+  .status.info { background: rgba(88,166,255,0.10); color: var(--accent); display: block; }
+
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 5px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="icon">✈</span>
+  <h1>PlaneRadar</h1>
+  <span class="ip" id="ip-display"></span>
+</header>
+
+<main>
+
+  <!-- Location -->
+  <section id="sec-location">
+    <div class="section-title">
+      Location
+      <span class="saved-badge" id="badge-location">Saved</span>
+    </div>
+    <div class="section-body">
+      <div class="callout">
+        Open <a href="https://maps.google.com" target="_blank">Google Maps</a>,
+        right-click your home and copy the coordinates.
+      </div>
+      <div class="row2">
+        <label>
+          <span class="lbl">Latitude</span>
+          <input id="home_lat" type="number" step="0.0001" placeholder="51.5085">
+        </label>
+        <label>
+          <span class="lbl">Longitude</span>
+          <input id="home_lon" type="number" step="0.0001" placeholder="-0.1257">
+        </label>
+      </div>
+      <div class="row2">
+        <label>
+          <span class="lbl">Radar radius (nautical miles)</span>
+          <input id="radius_nm" type="number" min="5" max="200" value="30">
+          <small>30 nm ≈ 55 km</small>
+        </label>
+        <label>
+          <span class="lbl">Screen facing direction (°)</span>
+          <input id="screen_bearing" type="number" min="0" max="359" value="0">
+          <small>Compass bearing the display faces (0 = North up)</small>
+        </label>
+      </div>
+      <button class="btn" onclick="saveSection('location')">Save location</button>
+      <div id="status-location" class="status"></div>
+    </div>
+  </section>
+
+  <!-- WiFi -->
+  <section>
+    <div class="section-title">Wi-Fi</div>
+    <div class="section-body">
+      <label>
+        <span class="lbl">Network (SSID)</span>
+        <input id="wifi_ssid" type="text" autocomplete="off" spellcheck="false">
+      </label>
+      <label>
+        <span class="lbl">Password</span>
+        <input id="wifi_password" type="password" autocomplete="new-password" placeholder="Leave blank to keep current">
+      </label>
+      <button class="btn ghost" onclick="saveWifi()">Change network &amp; reboot</button>
+      <div id="status-wifi" class="status"></div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadStatus();
+  await loadConfig();
+});
+
+async function loadStatus() {
+  try {
+    const r = await fetch('/status');
+    const d = await r.json();
+    document.getElementById('ip-display').textContent = d.ip;
+  } catch(_) {}
+}
+
+async function loadConfig() {
+  try {
+    const r = await fetch('/config');
+    if (!r.ok) return;
+    applyConfig(await r.json());
+  } catch(_) {}
+}
+
+function applyConfig(c) {
+  setVal('home_lat',       c.home_lat       || '');
+  setVal('home_lon',       c.home_lon       || '');
+  setVal('radius_nm',      c.radius_nm      || 30);
+  setVal('screen_bearing', c.screen_bearing || 0);
+  setVal('wifi_ssid',      c.wifi_ssid      || '');
+}
+
+async function saveSection(section) {
+  const s = document.getElementById('status-' + section);
+  const badge = document.getElementById('badge-' + section);
+  show(s, 'info', '<span class="spinner"></span> Saving…');
+
+  let payload = {};
+  if (section === 'location') {
+    payload = {
+      home_lat:       parseFloat(getVal('home_lat'))     || 0,
+      home_lon:       parseFloat(getVal('home_lon'))     || 0,
+      radius_nm:      parseInt(getVal('radius_nm'))      || 30,
+      screen_bearing: parseInt(getVal('screen_bearing')) || 0,
+    };
+  }
+
+  try {
+    const existing = await (await fetch('/config')).json();
+    const merged = { ...existing, ...payload };
+    const r = await fetch('/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(merged),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      show(s, 'ok', '✓ Saved');
+      if (badge) { badge.style.display = 'block'; setTimeout(() => badge.style.display = 'none', 3000); }
+    } else {
+      show(s, 'err', 'Save failed');
+    }
+  } catch(e) { show(s, 'err', e.message); }
+}
+
+async function saveWifi() {
+  const s = document.getElementById('status-wifi');
+  const ssid = getVal('wifi_ssid');
+  const pass = getVal('wifi_password');
+  if (!ssid) { show(s, 'err', 'SSID required.'); return; }
+  show(s, 'info', '<span class="spinner"></span> Saving and rebooting…');
+  try {
+    const existing = await (await fetch('/config')).json();
+    const payload = { ...existing, wifi_ssid: ssid, reboot: true };
+    if (pass && pass !== '********') payload.wifi_password = pass;
+    await fetch('/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    show(s, 'ok', 'Rebooting — reconnect to your network and visit planeradar.local');
+  } catch(_) {
+    show(s, 'ok', 'Rebooting…');
+  }
+}
+
+function getVal(id) { const e = document.getElementById(id); return e ? e.value.trim() : ''; }
+function setVal(id, v) { const e = document.getElementById(id); if (e) e.value = v; }
+function show(el, type, html) {
+  el.className = 'status ' + type;
+  el.innerHTML = html;
+}
+</script>
+</body>
+</html>
