@@ -9,8 +9,8 @@ public:
     LGFX() {
         {
             auto cfg = _bus.config();
-            cfg.spi_host  = SPI2_HOST;
-            cfg.spi_clock = 80000000;
+            cfg.spi_host   = SPI2_HOST;
+            cfg.freq_write = 80000000;
             cfg.pin_sclk  = PIN_SCK;
             cfg.pin_mosi  = PIN_MOSI;
             cfg.pin_miso  = -1;
