@@ -33,6 +33,59 @@ float bearing_deg(float lat1, float lon1, float lat2, float lon2) {
     return fmodf((atan2f(y, x) / DEG_TO_RAD) + 360.0f, 360.0f);
 }
 
+// Retry the GET while the connection is being refused / not yet established.
+// On the ESP32-C3 the first TLS handshake to the API sometimes fails
+// transiently; the reference firmware retries instead of giving up. Returns
+// the HTTP status code (>0) or a negative HTTPClient error.
+static int get_with_retry(HTTPClient &http) {
+    http.setConnectTimeout(2000);
+    const uint32_t deadline = millis() + 10000;
+    int code = 0;
+    while (millis() < deadline) {
+        code = http.GET();
+        if (code > 0) return code;                       // got an HTTP status
+        if (code != HTTPC_ERROR_CONNECTION_REFUSED &&
+            code != HTTPC_ERROR_CONNECTION_LOST &&
+            code != HTTPC_ERROR_NOT_CONNECTED) {
+            return code;                                 // hard error — don't spin
+        }
+        delay(50);
+    }
+    return code;
+}
+
+// Read the entire response body into `payload`, waiting properly for every
+// byte. Streaming deserializeJson straight off a TLS socket on the C3 can hit
+// a momentary available()==0 mid-transfer and abort with IncompleteInput —
+// which looks like "no aircraft". Reading the whole body first (the approach
+// the proven reference firmware uses) avoids that.
+static bool read_body(HTTPClient &http, String &payload) {
+    WiFiClient *stream = http.getStreamPtr();
+    if (!stream) return false;
+
+    const int content_length = http.getSize();
+    if (content_length > 0) {
+        payload.reserve(content_length + 1);   // exact size — no realloc spikes
+    } else {
+        payload.reserve(96 * 1024);             // chunked: pre-size to avoid doubling
+    }
+
+    uint8_t buf[512];
+    const uint32_t deadline = millis() + 12000;
+    while (millis() < deadline) {
+        int avail = stream->available();
+        if (avail > 0) {
+            int to_read = avail > (int)sizeof(buf) ? (int)sizeof(buf) : avail;
+            int n = stream->readBytes(buf, to_read);
+            if (n > 0) payload.concat((const char *)buf, n);
+        }
+        if (content_length > 0 && (int)payload.length() >= content_length) break;
+        if (!http.connected() && stream->available() <= 0) break;
+        delay(1);
+    }
+    return payload.length() > 0;
+}
+
 bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_count) {
     out_count = 0;
     out_nearest.valid = false;
@@ -49,22 +102,37 @@ bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_
     tls.setInsecure();
 
     HTTPClient http;
-    http.begin(tls, url);
+    if (!http.begin(tls, url)) {
+        Serial.println("[flight] http.begin failed");
+        return false;
+    }
     http.setTimeout(12000);
     http.addHeader("User-Agent", "PlaneRadar/1.0");
 
-    int code = http.GET();
-    if (code != 200) {
+    Serial.printf("[flight] heap before fetch: %u\n", ESP.getFreeHeap());
+
+    int code = get_with_retry(http);
+    if (code != HTTP_CODE_OK) {
         Serial.printf("[flight] HTTP %d\n", code);
         http.end();
         return false;
     }
 
-    // Only deserialize the fields we actually use. Without this filter, a
-    // wide radius over a busy area returns hundreds of KB of JSON and blows
-    // the ESP32-C3 heap (no PSRAM) — deserializeJson fails with NoMemory and
-    // every poll looks like "no aircraft". The [0] template is applied to
-    // every element of the "ac" array.
+    // Pull the whole body into RAM, then close the socket before parsing so
+    // the TLS buffers are freed and only the payload + parsed doc coexist.
+    String payload;
+    bool got = read_body(http, payload);
+    http.end();
+    if (!got) {
+        Serial.println("[flight] empty response body");
+        return false;
+    }
+    Serial.printf("[flight] body %u bytes, heap %u\n",
+                  (unsigned)payload.length(), ESP.getFreeHeap());
+
+    // Only keep the fields we use. The [0] template is applied to every
+    // element of the "ac" array — this keeps the parsed doc tiny so it fits
+    // alongside the async web server on the C3's no-PSRAM heap.
     JsonDocument filter;
     JsonObject fac = filter["ac"].add<JsonObject>();
     fac["lat"]         = true;
@@ -77,12 +145,9 @@ bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_
     fac["r"]           = true;
     fac["t"]           = true;
 
-    Serial.printf("[flight] heap before parse: %u\n", ESP.getFreeHeap());
-
     JsonDocument doc;
     DeserializationError err = deserializeJson(
-        doc, http.getStream(), DeserializationOption::Filter(filter));
-    http.end();
+        doc, payload, DeserializationOption::Filter(filter));
 
     if (err) {
         Serial.printf("[flight] JSON error: %s (heap %u)\n", err.c_str(), ESP.getFreeHeap());
