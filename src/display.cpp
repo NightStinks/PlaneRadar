@@ -27,15 +27,18 @@ public:
             cfg.offset_rotation = 0;
             _panel.config(cfg);
         }
+        // PIN_BL = -1 means backlight is wired directly to VCC
+#if PIN_BL >= 0
         {
-            auto cfg      = _light.config();
-            cfg.pin_bl    = PIN_BL;
-            cfg.invert    = false;
-            cfg.freq      = 44100;
+            auto cfg        = _light.config();
+            cfg.pin_bl      = PIN_BL;
+            cfg.invert      = false;
+            cfg.freq        = 44100;
             cfg.pwm_channel = 7;
             _light.config(cfg);
             _panel.setLight(&_light);
         }
+#endif
         setPanel(&_panel);
     }
 };
