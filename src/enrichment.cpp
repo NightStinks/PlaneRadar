@@ -1,6 +1,7 @@
 #include "enrichment.h"
 
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 
 bool enrichment_lookup(const char *callsign, RouteInfo &out) {
@@ -10,8 +11,11 @@ bool enrichment_lookup(const char *callsign, RouteInfo &out) {
     char url[128];
     snprintf(url, sizeof(url), "https://api.adsbdb.com/v0/callsign/%s", callsign);
 
+    WiFiClientSecure tls;
+    tls.setInsecure();
+
     HTTPClient http;
-    http.begin(url);
+    http.begin(tls, url);
     http.setTimeout(8000);
     http.addHeader("User-Agent", "PlaneRadar/1.0");
 

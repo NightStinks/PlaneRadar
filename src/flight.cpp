@@ -39,9 +39,10 @@ bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_
 
     if (s_home_lat == 0.0f && s_home_lon == 0.0f) return false;
 
+    // adsb.fi open data — same source the reference ESP32-Plane-Radar uses.
     char url[128];
     snprintf(url, sizeof(url),
-        "https://api.adsb.lol/v2/lat/%.4f/lon/%.4f/dist/%d",
+        "https://opendata.adsb.fi/api/v3/lat/%.4f/lon/%.4f/dist/%d",
         s_home_lat, s_home_lon, s_radius_nm);
 
     WiFiClientSecure tls;
@@ -49,7 +50,7 @@ bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_
 
     HTTPClient http;
     http.begin(tls, url);
-    http.setTimeout(10000);
+    http.setTimeout(12000);
     http.addHeader("User-Agent", "PlaneRadar/1.0");
 
     int code = http.GET();
@@ -59,17 +60,41 @@ bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_
         return false;
     }
 
+    // Only deserialize the fields we actually use. Without this filter, a
+    // wide radius over a busy area returns hundreds of KB of JSON and blows
+    // the ESP32-C3 heap (no PSRAM) — deserializeJson fails with NoMemory and
+    // every poll looks like "no aircraft". The [0] template is applied to
+    // every element of the "ac" array.
+    JsonDocument filter;
+    JsonObject fac = filter["ac"].add<JsonObject>();
+    fac["lat"]         = true;
+    fac["lon"]         = true;
+    fac["flight"]      = true;
+    fac["track"]       = true;
+    fac["true_heading"]= true;
+    fac["alt_baro"]    = true;
+    fac["gs"]          = true;
+    fac["r"]           = true;
+    fac["t"]           = true;
+
+    Serial.printf("[flight] heap before parse: %u\n", ESP.getFreeHeap());
+
     JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, http.getStream());
+    DeserializationError err = deserializeJson(
+        doc, http.getStream(), DeserializationOption::Filter(filter));
     http.end();
 
     if (err) {
-        Serial.printf("[flight] JSON error: %s\n", err.c_str());
+        Serial.printf("[flight] JSON error: %s (heap %u)\n", err.c_str(), ESP.getFreeHeap());
         return false;
     }
 
     JsonArrayConst ac = doc["ac"].as<JsonArrayConst>();
-    if (ac.isNull() || ac.size() == 0) return false;
+    if (ac.isNull() || ac.size() == 0) {
+        Serial.println("[flight] no aircraft in response");
+        return false;
+    }
+    Serial.printf("[flight] %u aircraft in response\n", (unsigned)ac.size());
 
     float best_dist = 1e9f;
     int   nearest_idx = -1;
@@ -82,7 +107,7 @@ bool flight_poll(NearestAircraft &out_nearest, RadarAircraft *out_all, int &out_
         float a_lon  = aircraft["lon"].as<float>();
         float dist   = haversine_km(s_home_lat, s_home_lon, a_lat, a_lon);
         float bear   = bearing_deg(s_home_lat, s_home_lon, a_lat, a_lon);
-        float track  = aircraft["track"] | 0.0f;
+        float track  = aircraft["track"] | (aircraft["true_heading"] | 0.0f);
 
         if (dist < best_dist) {
             best_dist    = dist;
